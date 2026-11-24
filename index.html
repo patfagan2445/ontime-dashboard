@@ -72,6 +72,15 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.01em;margin:0}
 .cp .open{margin-top:10px;font-size:13px;color:var(--muted)}
 
 section.block{margin-bottom:30px}
+.ready{display:grid;grid-template-columns:auto 1fr;gap:10px 32px;align-items:center;background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;margin:-12px 0 30px}
+.ready .rn{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.ready .rl{font-size:14px;color:var(--muted);margin-top:4px;max-width:30ch}
+.ready h2{font-size:16px;font-weight:600;margin:0 0 2px}
+.ready .rb{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px}
+.ready .rb b{font-size:18px;margin-right:4px}
+.ready .rb .bad b{color:var(--late)}
+.ready .rb .good b{color:var(--ontime)}
+@media (max-width:640px){.ready{grid-template-columns:1fr}}
 section.block > h2{font-size:18px;font-weight:600;margin:0 0 4px}
 section.block > p.sub{margin:0 0 12px;color:var(--muted);font-size:14px;max-width:72ch}
 .panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:14px 16px}
@@ -176,6 +185,7 @@ dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
   </div>
 
   <div class="cps" id="cps"></div>
+  <div class="ready" id="readyBox"></div>
 
   <section class="block">
     <h2>When work finished against the cutoff</h2>
@@ -206,6 +216,19 @@ dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
     <div class="tscroll"><table>
       <thead><tr><th>WO</th><th>Priority</th><th>Due</th><th>What’s late</th><th>Analyzed</th><th>Reviewed</th><th>Report sent</th><th>Client</th><th>CSP</th><th>Notes</th><th></th></tr></thead>
       <tbody id="lateBody"></tbody>
+    </table></div>
+  </section>
+
+  <section class="block wide">
+    <h2>Ready to report at 5:00 PM</h2>
+    <p class="sub">Work orders that were Reportable or Approvable at the 5:00 PM update, checked again on the next business day’s first update. Dates here are the 5:00 PM day, not the due date.</p>
+    <div class="tablebar">
+      <label>Next morning <select id="fReady"><option value="all">All</option><option value="notsent">Still not sent</option><option value="sent">Sent</option><option value="off">Off the report</option><option value="reopen">Back in progress</option><option value="pending">Check pending</option></select></label>
+      <span class="count" id="readyCount"></span>
+    </div>
+    <div class="tscroll"><table>
+      <thead><tr><th>5:00 PM on</th><th>WO</th><th>Status at 5:00</th><th>Priority</th><th>Due</th><th>Next morning</th><th>Client</th><th>CSP</th><th></th></tr></thead>
+      <tbody id="readyBody"></tbody>
     </table></div>
   </section>
 
@@ -272,8 +295,8 @@ const CPS = ["an","rv","cs5","cs12"];
 const isCs = cp => cp === "cs5" || cp === "cs12";
 const DEFAULT_EX = { wos: {}, rules: [{ id: "wm", label: "WM sites", match: "starts", value: "WM ", on: true }] };
 
-let LATE_ROWS = [], RECORDS = [], META = {}, EX = structuredClone(DEFAULT_EX), EX_SHA = null;
-let state = { preset: "mtd", from: null, to: null, strip: "rv", fCp: "either", fPri: "all", showAll: false };
+let READY = [], LATE_ROWS = [], RECORDS = [], META = {}, EX = structuredClone(DEFAULT_EX), EX_SHA = null;
+let state = { preset: "mtd", from: null, to: null, strip: "rv", fCp: "either", fPri: "all", showAll: false, fReady: "all", readyAll: false };
 const DEMO = typeof window.DEMO_DATA !== "undefined" ? window.DEMO_DATA : null;
 
 /* ---------- small helpers ---------- */
@@ -294,7 +317,7 @@ const pct = (a, b) => b ? Math.round(100 * a / b) : null;
 /* ---------- data ---------- */
 async function loadAll() {
   if (DEMO) {
-    RECORDS = DEMO.records; META = DEMO.meta;
+    RECORDS = DEMO.records; META = DEMO.meta; READY = DEMO.ready || [];
     $("demo").hidden = false;
     $("demo").textContent = "Prototype with sample data from the Nov 24 export. Times are partial because capture started on that pull, so rates here are illustrative only. Exclusions you make here aren’t saved.";
   } else {
@@ -303,6 +326,7 @@ async function loadAll() {
       const [r, m] = await Promise.all([fetch(raw(CONFIG.dataBranch, "wo_records.json")), fetch(raw(CONFIG.dataBranch, "meta.json"))]);
       if (!r.ok || !m.ok) throw new Error("data");
       RECORDS = await r.json(); META = await m.json();
+      try { const rr = await fetch(raw(CONFIG.dataBranch, "ready.json")); READY = rr.ok ? await rr.json() : []; } catch { READY = []; }
     } catch {
       $("asof").innerHTML = `<span class="err">Couldn’t load data. Check that the capture workflow has run at least once (Actions tab) and that the repo is public.</span>`;
       return false;
@@ -433,6 +457,7 @@ function render() {
   renderStrip(rows);
   renderTrend(asOf);
   renderLate(rows);
+  renderReady();
   renderExclusions();
   renderNotes(inRange, rows);
 }
@@ -589,6 +614,52 @@ function renderLate(rows) {
   }).join("") : `<tr><td colspan="11" class="empty">No late work orders in this range.</td></tr>`;
 }
 
+const SENT = ["Reported","Approved","Completed","Invoiced"];
+function readyOutcome(day, w) {
+  if (!day.t6) return { k: "pending", label: "Check pending" };
+  if (w.sent_at || SENT.includes(w.next)) {
+    const t = w.sent_at ? dt(w.sent_at) : null, overnight = w.sent_at === day.t6;
+    return { k: "sent", label: t && !overnight ? `Sent ${MON[t.getMonth()]} ${t.getDate()}, ${fTime(t)}` : "Sent overnight (seen next morning)" };
+  }
+  if (["Reportable","Approvable"].includes(w.next)) return { k: "notsent", label: `Still ${w.next}` };
+  if (w.next === "Off report") return { k: "off", label: "Off the report (likely sent)" };
+  return { k: "reopen", label: `Back to ${w.next || "unknown"}` };
+}
+
+function readyRows() {
+  const out = [];
+  for (const day of READY) {
+    if (day.day < state.from || day.day > state.to) continue;
+    for (const w of day.wos) {
+      if (EX.wos[w.wo] || custExcluded(w.client)) continue;
+      out.push({ day, w, o: readyOutcome(day, w) });
+    }
+  }
+  return out;
+}
+
+function renderReady() {
+  const rows = readyRows(), c = k => rows.filter(x => x.o.k === k).length;
+  const rep = rows.filter(x => x.w.ws === "Reportable").length, app = rows.length - rep;
+  $("readyBox").innerHTML = `<div><div class="rn">${rows.length}</div><div class="rl">ready to report at 5:00 PM but not sent</div></div>
+    <div><h2>Ready to report at 5:00 PM</h2>
+      <div class="rl" style="max-width:none;margin:0 0 8px">${rep} Reportable, ${app} Approvable, across ${new Set(rows.map(x => x.day.day)).size} day(s). Next-morning result:</div>
+      <div class="rb"><span class="bad"><b>${c("notsent")}</b>still not sent</span><span class="good"><b>${c("sent")}</b>sent by next morning</span>
+        <span><b>${c("off")}</b>off the report</span><span><b>${c("reopen")}</b>back in progress</span>${c("pending") ? `<span><b>${c("pending")}</b>check pending</span>` : ""}</div></div>`;
+  const f = state.fReady;
+  const list = rows.filter(x => f === "all" || x.o.k === f)
+    .sort((a, b) => b.day.day.localeCompare(a.day.day) || (a.o.k === "notsent" ? -1 : 0) - (b.o.k === "notsent" ? -1 : 0) || PRIS.indexOf(priOf({priority: a.w.prio})) - PRIS.indexOf(priOf({priority: b.w.prio})));
+  const cap = state.readyAll ? 1000 : 25;
+  $("readyCount").innerHTML = `${list.length} work orders` + (list.length > 25 ? ` <button class="btn" id="readyAll">${state.readyAll ? "Show fewer" : "Show all"}</button>` : "");
+  $("readyBody").innerHTML = list.length ? list.slice(0, cap).map(({ day, w, o }) => {
+    const dueTag = !w.due ? "" : w.due < day.day ? `<span class="flag" style="color:var(--late)">Overdue</span>` : w.due === day.day ? `<span class="flag">Due that day</span>` : `<span class="flag">Due later</span>`;
+    const cls = o.k === "notsent" ? "late" : o.k === "sent" ? "ok" : "";
+    return `<tr><td>${fDate(day.day)}</td><td><b>${esc(w.wo)}</b></td><td>${esc(w.ws)}</td><td>${esc(priOf({priority: w.prio}))}</td>
+      <td>${w.due ? fDate(w.due) : "–"} ${dueTag}</td><td class="${cls}">${esc(o.label)}</td><td>${esc(w.client)}</td><td>${esc(w.csp || "")}</td>
+      <td><button class="btn" data-ex="${esc(w.wo)}">Exclude</button></td></tr>`;
+  }).join("") : `<tr><td colspan="9" class="empty">No work orders were ready to report at 5:00 PM in this range.</td></tr>`;
+}
+
 function renderExclusions() {
   $("rules").innerHTML = EX.rules.length ? EX.rules.map((x, i) => `<li><span>${esc(x.label)}<br><span class="meta">${x.match === "starts" ? `Client name starts with “${esc(x.value.trim())}”` : "Exact customer name"}</span></span>
     <span style="display:flex;gap:8px;align-items:center">${x.id === "wm" ? "" : `<button class="btn" data-delrule="${i}">Remove</button>`}
@@ -688,10 +759,12 @@ function wire() {
   $("stripToggle").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { state.strip = b.dataset.cp; render(); } });
   $("fCp").addEventListener("change", e => { state.fCp = e.target.value; render(); });
   $("fPri").addEventListener("change", e => { state.fPri = e.target.value; render(); });
+  $("fReady").addEventListener("change", e => { state.fReady = e.target.value; render(); });
   const stamp = () => ({ by: ls.get("otd_name") || (DEMO ? "You" : "Unknown"), at: new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,19) });
   document.body.addEventListener("click", e => {
     const t = e.target.closest("button"); if (!t) return;
     if (t.id === "showAll") { state.showAll = !state.showAll; render(); return; }
+    if (t.id === "readyAll") { state.readyAll = !state.readyAll; render(); return; }
     if (t.dataset.pop !== undefined) { const i = +t.dataset.pop; if (popPinned && popFor === i) hidePop(); else showPop(i, t, true); return; }
     if (t.dataset.ex) { const wo = t.dataset.ex; saveExclusions(x => { x.wos[wo] = stamp(); }, `Excluded ${wo}`); }
     if (t.dataset.restore) { const wo = t.dataset.restore; saveExclusions(x => { delete x.wos[wo]; }, `Included ${wo} again`); }
