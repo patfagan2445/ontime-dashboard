@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>On-time work orders | Sterling Labs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF2F1; --surface:#FFFFFF; --ink:#16232B; --muted:#5B6970; --rule:#D3DCDA;
+  --ontime:#0E7A6B; --late:#B0244A; --pending:#8C6A00;
+  --s-an:#3A6C8E; --s-rv:#0E7A6B; --s-c5:#6B4C9A; --s-c12:#A05A86; --chip:#E3EAE8; --focus:#3A6C8E;
+  color-scheme: light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1719; --surface:#172124; --ink:#E4ECEA; --muted:#93A3A6; --rule:#2A3a3d;
+    --ontime:#3FBFA9; --late:#F0718F; --pending:#D9B44A;
+    --s-an:#7FB0D3; --s-rv:#3FBFA9; --s-c5:#B49AE0; --s-c12:#E09AC6; --chip:#22302F; --focus:#7FB0D3;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1719; --surface:#172124; --ink:#E4ECEA; --muted:#93A3A6; --rule:#2A3a3d;
+  --ontime:#3FBFA9; --late:#F0718F; --pending:#D9B44A;
+  --s-an:#7FB0D3; --s-rv:#3FBFA9; --s-c5:#B49AE0; --s-c12:#E09AC6; --chip:#22302F; --focus:#7FB0D3;
+  color-scheme: dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:15px;line-height:1.45;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 20px 60px}
+header.top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:12px 24px;margin-bottom:14px}
+h1{font-size:28px;font-weight:700;letter-spacing:-.01em;margin:0}
+.asof{color:var(--muted);font-size:14px}
+.asof b{color:var(--ink);font-weight:600}
+.demo{background:var(--chip);border-left:3px solid var(--pending);padding:8px 12px;margin:0 0 14px;font-size:14px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:22px}
+.seg{display:flex;flex-wrap:wrap;background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:3px}
+.seg button{border:0;background:none;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:14px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);font-weight:600}
+.custom{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--muted)}
+.custom input{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:5px 8px}
+.rangelabel{color:var(--muted);font-size:14px;margin-left:auto}
+
+/* checkpoint panels */
+.cps{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}
+.cp{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px 16px 14px}
+.cp .grp{font-size:12px;color:var(--muted);margin:0 0 2px}
+.cp h2{font-size:16px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px}
+.cp h2 .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.cp .big{display:flex;align-items:baseline;gap:12px;margin:6px 0 14px}
+.cp .pct{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.cp .of{color:var(--muted);font-size:14px}
+.pri{display:grid;grid-template-columns:52px 1fr 40px 54px;align-items:center;gap:6px 10px;font-size:14px}
+.pri .lbl{font-weight:600}
+.pri .bar{height:10px;background:var(--chip);border-radius:5px;position:relative;overflow:hidden}
+.pri .bar i{position:absolute;inset:0 auto 0 0;border-radius:5px}
+.pri .p{text-align:right;font-weight:600}
+.pri .n{text-align:right;color:var(--muted)}
+.pri .div{grid-column:1/-1;height:1px;background:var(--rule);margin:2px 0}
+.pri .sum{font-weight:700}
+.pri .p.sum{font-size:16px}
+.cp .open{margin-top:10px;font-size:13px;color:var(--muted)}
+
+section.block{margin-bottom:30px}
+section.block > h2{font-size:18px;font-weight:600;margin:0 0 4px}
+section.block > p.sub{margin:0 0 12px;color:var(--muted);font-size:14px;max-width:72ch}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:14px 16px}
+.toggle{display:inline-flex;gap:4px;margin-bottom:8px}
+.toggle button{border:1px solid var(--rule);background:var(--surface);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--muted)}
+.toggle button[aria-pressed="true"]{border-color:var(--ink);color:var(--ink);font-weight:600}
+svg{display:block;width:100%;height:auto}
+svg text{fill:var(--muted);font-size:11px;font-family:inherit}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:-1px;background:var(--c)}
+.legend span.hollow::before{background:none;border:1.5px solid var(--c);width:9px;height:9px}
+
+/* table */
+.tablebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;font-size:14px}
+.tablebar select{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:4px 8px}
+.tablebar .count{color:var(--muted);margin-left:auto}
+.wide{width:min(calc(100vw - 56px),1640px);margin-left:calc(50% - min(calc(50vw - 28px),820px))}
+.tscroll{overflow-x:auto;border:1px solid var(--rule);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:1180px}
+td.what{white-space:normal;min-width:220px;max-width:320px;font-size:13px;line-height:1.35}
+#lateBody td:nth-child(8),#lateBody td:nth-child(9),#lateBody td:nth-child(10){white-space:normal;min-width:120px}
+td.what b{font-weight:600}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:13px;background:var(--surface);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.late{color:var(--late);font-weight:600}
+td.ok{color:var(--ontime)}
+td .t{color:var(--ink);font-weight:400}
+.flag{display:inline-block;font-size:12px;background:var(--chip);border-radius:4px;padding:1px 6px;margin-right:4px;color:var(--muted)}
+.btn{border:1px solid var(--rule);background:var(--surface);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.empty{padding:22px;color:var(--muted);text-align:center}
+button.wo{border:0;background:none;padding:0;font-weight:700;cursor:pointer;text-decoration:underline dotted var(--muted);text-underline-offset:3px}
+#lateBody tr.hot td{background:var(--chip)}
+#pop{position:fixed;z-index:20;background:var(--surface);border:1px solid var(--rule);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);
+  width:min(1060px,calc(100vw - 24px));max-height:72vh;overflow:auto;padding:12px 14px 10px;font-size:13px}
+#pop[hidden]{display:none}
+#pop .ph{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;margin-bottom:10px}
+#pop .ph b{font-size:16px}
+#pop .ph .m{color:var(--muted)}
+#pop .stages{display:grid;grid-template-columns:repeat(7,minmax(118px,1fr));border:1px solid var(--rule);border-radius:8px;overflow:hidden;min-width:830px}
+#pop .stages.eight{grid-template-columns:repeat(8,minmax(112px,1fr));min-width:920px}
+#pop .st{border-right:1px solid var(--rule);padding:8px}
+#pop .toggle button:disabled{opacity:.45;cursor:not-allowed}
+#pop .st:last-child{border-right:0}
+#pop .st h4{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--muted)}
+#pop .st.none h4{opacity:.55}
+#pop .an{font-weight:600;margin:4px 0 3px;line-height:1.25}
+#pop .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--rule);border-radius:4px;padding:0 5px;margin:0 3px 3px 0;background:var(--bg);line-height:1.6}
+#pop .chip em{font-style:normal;font-weight:700}
+#pop .chip.late{border-color:var(--late);color:var(--late)}
+#pop .chip.late::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--late)}
+#pop .pf{margin-top:8px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.list{margin:0;padding:0;list-style:none}
+.list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:14px}
+.list li:last-child{border-bottom:0}
+.list .meta{color:var(--muted);font-size:13px}
+.switch{position:relative;width:38px;height:22px;flex:none}
+.switch input{opacity:0;width:100%;height:100%;margin:0;position:absolute;cursor:pointer}
+.switch span{position:absolute;inset:0;background:var(--rule);border-radius:11px;pointer-events:none;transition:background .15s}
+.switch span::after{content:"";position:absolute;width:16px;height:16px;top:3px;left:3px;border-radius:50%;background:var(--surface);transition:transform .15s}
+.switch input:checked + span{background:var(--ontime)}
+.switch input:checked + span::after{transform:translateX(16px)}
+.switch input:focus-visible + span{outline:2px solid var(--focus);outline-offset:2px}
+.addrow{display:flex;gap:6px;margin-top:10px}
+.addrow input{flex:1;background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:5px 8px;min-width:0}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.note{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:12px 14px;font-size:14px}
+.note b{display:block;font-size:22px;font-weight:700;margin-bottom:2px}
+.note span{color:var(--muted)}
+.save{font-size:13px;color:var(--muted);min-height:1.2em;margin-top:6px}
+dialog{border:1px solid var(--rule);border-radius:10px;background:var(--surface);color:var(--ink);padding:18px 20px;max-width:420px;width:calc(100% - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog label{display:block;font-size:14px;margin:10px 0 4px;font-weight:600}
+dialog input{width:100%;background:var(--bg);border:1px solid var(--rule);border-radius:6px;padding:6px 8px}
+dialog p{margin:0 0 6px;color:var(--muted);font-size:14px}
+dialog .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.err{color:var(--late)}
+@media (max-width:1100px){.cps{grid-template-columns:1fr 1fr}}
+@media (max-width:820px){.cps,.two{grid-template-columns:1fr}.rangelabel{margin-left:0;width:100%}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>On-time work orders</h1>
+    <div class="asof" id="asof">Loading data…</div>
+  </header>
+  <div class="demo" id="demo" hidden></div>
+
+  <div class="controls">
+    <div class="seg" id="presets" role="group" aria-label="Date range"></div>
+    <div class="custom">
+      <input type="date" id="from" aria-label="From due date"> to
+      <input type="date" id="to" aria-label="To due date">
+    </div>
+    <div class="rangelabel" id="rangelabel"></div>
+  </div>
+
+  <div class="cps" id="cps"></div>
+
+  <section class="block">
+    <h2>When work finished against the cutoff</h2>
+    <p class="sub">Each dot is a work order, placed by how far before or after the cutoff on its due date that step was done. Dots just right of the line are near misses.</p>
+    <div class="panel">
+      <div class="toggle" id="stripToggle"></div>
+      <div id="strip"></div>
+      <div class="legend"><span style="--c:var(--ontime)">On time</span><span style="--c:var(--late)">Late</span><span class="hollow" style="--c:var(--muted)">Approximate time</span></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Daily on-time rate</h2>
+    <p class="sub" id="trendsub">By due date.</p>
+    <div class="panel">
+      <div id="trend"></div>
+      <div class="legend"><span style="--c:var(--s-an)">Analyzed by 3:30 PM</span><span style="--c:var(--s-rv)">Reviewed by 4:00 PM</span><span style="--c:var(--s-c5)">Report sent by 5:00 PM</span><span style="--c:var(--s-c12)">Report sent by 11:59 PM</span></div>
+    </div>
+  </section>
+
+  <section class="block wide">
+    <h2>Late work orders</h2>
+    <div class="tablebar">
+      <label>Checkpoint <select id="fCp"><option value="either">Any</option><option value="an">Analyzed by 3:30</option><option value="rv">Reviewed by 4:00</option><option value="cs5">Report by 5:00</option><option value="cs12">Report by 11:59</option></select></label>
+      <label>Priority <select id="fPri"><option value="all">All</option><option>A</option><option>B</option><option>C</option><option>Default</option></select></label>
+      <span class="count" id="lateCount"></span>
+    </div>
+    <div class="tscroll"><table>
+      <thead><tr><th>WO</th><th>Priority</th><th>Due</th><th>What’s late</th><th>Analyzed</th><th>Reviewed</th><th>Report sent</th><th>Client</th><th>CSP</th><th>Notes</th><th></th></tr></thead>
+      <tbody id="lateBody"></tbody>
+    </table></div>
+  </section>
+
+  <section class="block">
+    <h2>Exclusions</h2>
+    <p class="sub">Excluded work orders and customers are left out of every number on this page. Changes save for everyone.</p>
+    <div class="two">
+      <div class="panel">
+        <h3 style="margin:0 0 4px;font-size:15px">Customers</h3>
+        <ul class="list" id="rules"></ul>
+        <div class="addrow">
+          <input id="addCust" list="clients" placeholder="Exclude another customer">
+          <datalist id="clients"></datalist>
+          <button class="btn" id="addCustBtn">Exclude</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 4px;font-size:15px">Work orders</h3>
+        <ul class="list" id="woEx"></ul>
+        <div class="addrow">
+          <input id="addWo" placeholder="Exclude a WO number, e.g. O26K0388">
+          <button class="btn" id="addWoBtn">Exclude</button>
+        </div>
+      </div>
+    </div>
+    <div class="save" id="save" role="status"></div>
+  </section>
+
+  <section class="block">
+    <h2>Data notes for this range</h2>
+    <div class="notes" id="notes"></div>
+  </section>
+</div>
+
+<div id="pop" role="dialog" aria-label="Work order detail" hidden></div>
+
+<dialog id="keyDlg">
+  <form method="dialog" id="keyForm">
+    <h3 style="margin:0 0 6px">Save changes</h3>
+    <p>Exclusions save to the shared dashboard, so this browser needs your name and the access key once.</p>
+    <label for="dlgName">Your name</label>
+    <input id="dlgName" autocomplete="name" required>
+    <label for="dlgKey">Access key</label>
+    <input id="dlgKey" type="password" autocomplete="off" required>
+    <div class="row"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Save</button></div>
+  </form>
+</dialog>
+
+<script>
+/*__DEMO__*/
+const CONFIG = {
+  owner: "patfagan2445",
+  repo: "ontime-dashboard",
+  dataBranch: "data",
+  mainBranch: "main",
+  cutoffs: { an: "15:30", rv: "16:00", cs5: "17:00", cs12: "23:59" },
+  // Days the lab is closed; a WO due on one is flagged as a data issue.
+  holidays: ["2026-11-26","2026-11-27","2026-12-24","2026-12-25","2026-12-31","2027-01-01","2027-05-31","2027-07-05","2027-09-06","2027-11-25","2027-11-26","2027-12-24","2027-12-31"]
+};
+const PRIS = ["A","B","C","Default"];
+const CP = { an: { label: "Analyzed by 3:30 PM", color: "var(--s-an)", grp: "Lab" }, rv: { label: "Reviewed by 4:00 PM", color: "var(--s-rv)", grp: "Lab" },
+  cs5: { label: "Report sent by 5:00 PM", color: "var(--s-c5)", grp: "Customer service" }, cs12: { label: "Report sent by 11:59 PM", color: "var(--s-c12)", grp: "Customer service" } };
+const CPS = ["an","rv","cs5","cs12"];
+const isCs = cp => cp === "cs5" || cp === "cs12";
+const DEFAULT_EX = { wos: {}, rules: [{ id: "wm", label: "WM sites", match: "starts", value: "WM ", on: true }] };
+
+let LATE_ROWS = [], RECORDS = [], META = {}, EX = structuredClone(DEFAULT_EX), EX_SHA = null;
+let state = { preset: "mtd", from: null, to: null, strip: "rv", fCp: "either", fPri: "all", showAll: false };
+const DEMO = typeof window.DEMO_DATA !== "undefined" ? window.DEMO_DATA : null;
+
+/* ---------- small helpers ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const ls = { get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+             set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
+const dt = s => s ? new Date(s.length === 10 ? s + "T00:00:00" : s) : null;
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const fDate = s => { const d = dt(s); return `${MON[d.getMonth()]} ${d.getDate()}`; };
+const fTime = d => { let h = d.getHours(), m = d.getMinutes(); const ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return `${h}:${String(m).padStart(2,"0")} ${ap}`; };
+const fStamp = s => { const d = dt(s); return `${MON[d.getMonth()]} ${d.getDate()}, ${fTime(d)}`; };
+const fDelta = m => { const a = Math.abs(m); if (a >= 1440) return `${m<0?"−":"+"}${(a/1440).toFixed(1)}d`; const h = Math.floor(a/60), mm = Math.round(a%60); return `${m<0?"−":"+"}${h ? h+"h " : ""}${mm}m`; };
+const pct = (a, b) => b ? Math.round(100 * a / b) : null;
+
+/* ---------- data ---------- */
+async function loadAll() {
+  if (DEMO) {
+    RECORDS = DEMO.records; META = DEMO.meta;
+    $("demo").hidden = false;
+    $("demo").textContent = "Prototype with sample data from the Nov 24 export. Times are partial because capture started on that pull, so rates here are illustrative only. Exclusions you make here aren’t saved.";
+  } else {
+    const raw = (b, f) => `https://raw.githubusercontent.com/${CONFIG.owner}/${CONFIG.repo}/${b}/${f}?t=${Date.now()}`;
+    try {
+      const [r, m] = await Promise.all([fetch(raw(CONFIG.dataBranch, "wo_records.json")), fetch(raw(CONFIG.dataBranch, "meta.json"))]);
+      if (!r.ok || !m.ok) throw new Error("data");
+      RECORDS = await r.json(); META = await m.json();
+    } catch {
+      $("asof").innerHTML = `<span class="err">Couldn’t load data. Check that the capture workflow has run at least once (Actions tab) and that the repo is public.</span>`;
+      return false;
+    }
+    await loadExclusions();
+  }
+  return true;
+}
+
+async function loadExclusions() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/exclusions.json?ref=${CONFIG.mainBranch}&t=${Date.now()}`, { headers: authHeaders() });
+    if (r.status === 404) { EX = structuredClone(DEFAULT_EX); EX_SHA = null; return; }
+    const j = await r.json();
+    EX_SHA = j.sha;
+    EX = JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\n/g, "")))));
+    EX.wos ??= {}; EX.rules ??= [];
+  } catch { /* fall back to defaults; saving will re-read */ }
+}
+
+function authHeaders() {
+  const k = ls.get("otd_key");
+  return k ? { Authorization: `Bearer ${k}`, Accept: "application/vnd.github+json" } : { Accept: "application/vnd.github+json" };
+}
+
+function askKey() {
+  return new Promise(res => {
+    const dlg = $("keyDlg");
+    $("dlgName").value = ls.get("otd_name") || "";
+    $("dlgKey").value = ls.get("otd_key") || "";
+    dlg.onclose = () => {
+      if (dlg.returnValue === "ok" && $("dlgName").value.trim() && $("dlgKey").value.trim()) {
+        ls.set("otd_name", $("dlgName").value.trim()); ls.set("otd_key", $("dlgKey").value.trim()); res(true);
+      } else res(false);
+    };
+    dlg.showModal();
+  });
+}
+
+async function saveExclusions(mutate, what) {
+  const saveEl = $("save");
+  if (DEMO) { mutate(EX); render(); saveEl.textContent = `${what} (prototype: not saved).`; return; }
+  if ((!ls.get("otd_key") || !ls.get("otd_name")) && !(await askKey())) return;
+  saveEl.textContent = "Saving…";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await loadExclusions();
+    mutate(EX);
+    const body = { message: `Dashboard: ${what}`, branch: CONFIG.mainBranch,
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(EX, null, 2)))) };
+    if (EX_SHA) body.sha = EX_SHA;
+    const r = await fetch(`https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents/exclusions.json`,
+      { method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.ok) { EX_SHA = (await r.json()).content.sha; render(); saveEl.textContent = `${what}. Saved.`; return; }
+    if (r.status === 401 || r.status === 403) {
+      saveEl.innerHTML = `<span class="err">The access key was rejected. Enter it again to save.</span>`;
+      ls.set("otd_key", ""); if (!(await askKey())) return; continue;
+    }
+    if (r.status !== 409 && r.status !== 422) { saveEl.innerHTML = `<span class="err">Couldn’t save (GitHub error ${r.status}). Try again.</span>`; return; }
+  }
+  saveEl.innerHTML = `<span class="err">Someone else saved at the same time. Refresh and try again.</span>`;
+}
+
+/* ---------- rules ---------- */
+const priOf = r => PRIS.includes(r.priority) ? r.priority : "Default";
+function custExcluded(client) {
+  const c = String(client || "");
+  return EX.rules.some(x => x.on && (x.match === "starts" ? c.toUpperCase().startsWith(x.value.toUpperCase()) : c === x.value));
+}
+const isExcluded = r => !!EX.wos[r.wo] || custExcluded(r.client);
+
+function cutoffOf(r, cp) { return dt(`${r.due}T${CONFIG.cutoffs[cp]}:00`); }
+function status(r, cp, asOf) {
+  const cs = isCs(cp);
+  if (cs ? (!r.sent_at && r.cs_unexpected) : !r.tests) return { s: "unresolved" };
+  const c = cutoffOf(r, cp);
+  const t = dt(cs ? r.sent_at : r[cp === "an" ? "analyzed_at" : "reviewed_at"]);
+  const approx = cs ? r.sent_approx : r[cp === "an" ? "analyzed_approx" : "reviewed_approx"];
+  if (t) {
+    const m = (t - c) / 60000;
+    // 11:59 PM: no pulls overnight, so a report first seen on the first pull after the cutoff
+    // (next business day's first pull, weekends and holidays included) gets the benefit of the doubt.
+    if (cp === "cs12" && m > 0 && r.sent_after && dt(r.sent_after) <= c)
+      return { s: "ontime", m: -1, t, approx: true, overnight: true };
+    return { s: m <= 0 ? "ontime" : "late", m, t, approx };
+  }
+  if (asOf > c) return { s: "late", m: (asOf - c) / 60000, open: true };
+  return { s: "pending" };
+}
+
+/* ---------- range ---------- */
+const PRESETS = [
+  ["today","Today"],["yesterday","Yesterday"],["week","This week"],["lastweek","Last week"],
+  ["mtd","Month to date"],["lastmonth","Last month"],["30","Last 30 days"]];
+function rangeFor(p, today) {
+  const dow = (today.getDay() + 6) % 7; // Monday = 0
+  switch (p) {
+    case "today": return [today, today];
+    case "yesterday": { const y = addDays(today, -1); return [y, y]; }
+    case "week": return [addDays(today, -dow), today];
+    case "lastweek": { const s = addDays(today, -dow - 7); return [s, addDays(s, 6)]; }
+    case "mtd": return [new Date(today.getFullYear(), today.getMonth(), 1), today];
+    case "lastmonth": return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)];
+    case "30": return [addDays(today, -29), today];
+  }
+}
+function applyPreset(p) {
+  const asOf = dt(META.last_pull) || new Date();
+  const today = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  const [f, t] = rangeFor(p, today);
+  state.preset = p; state.from = ymd(f); state.to = ymd(t);
+  $("from").value = state.from; $("to").value = state.to;
+  render();
+}
+
+/* ---------- render ---------- */
+function render() {
+  if (typeof hidePop === "function" && $("pop")) hidePop();
+  const asOf = dt(META.last_pull) || new Date();
+  $("asof").innerHTML = `Data through <b>${esc(fStamp(META.last_pull))}</b>`;
+  [...$("presets").children].forEach(b => b.setAttribute("aria-pressed", b.dataset.p === state.preset));
+  $("rangelabel").textContent = `Due ${fDate(state.from)}${state.to !== state.from ? " to " + fDate(state.to) : ""}`;
+
+  const inRange = RECORDS.filter(r => !r.pre_capture && r.due >= state.from && r.due <= state.to);
+  const live = inRange.filter(r => !isExcluded(r));
+  const rows = live.map(r => ({ r, an: status(r, "an", asOf), rv: status(r, "rv", asOf), cs5: status(r, "cs5", asOf), cs12: status(r, "cs12", asOf) }));
+  renderCheckpoints(rows, live);
+  $("rangelabel").textContent += `: ${live.length} commitments, ${new Set(live.map(r => r.wo)).size} WOs`;
+  renderStrip(rows);
+  renderTrend(asOf);
+  renderLate(rows);
+  renderExclusions();
+  renderNotes(inRange, rows);
+}
+
+function tally(rows, cp) {
+  let on = 0, late = 0, pend = 0, openLate = 0;
+  for (const x of rows) { const s = x[cp].s; if (s === "ontime") on++; else if (s === "late") { late++; if (x[cp].open) openLate++; } else if (s === "pending") pend++; }
+  return { on, late, pend, openLate, n: on + late };
+}
+
+function renderCheckpoints(rows, live) {
+  const uniq = new Set(live.map(r => r.wo)).size;
+  $("cps").innerHTML = CPS.map(cp => {
+    const t = tally(rows, cp), p = pct(t.on, t.n);
+    const groups = [["Pri A", ["A"]], ["Pri B", ["B"]], ["Pri C", ["C"]], ["A+B+C", ["A","B","C"], true], ["Default", ["Default"]]];
+    const priRows = groups.map(([lbl, set, sum]) => {
+      const tt = tally(rows.filter(x => set.includes(priOf(x.r))), cp), pp = pct(tt.on, tt.n), c = sum ? " sum" : "";
+      return `${sum ? '<span class="div"></span>' : ""}<span class="lbl${c}">${lbl}</span>
+        <span class="bar" aria-hidden="true"><i style="width:${pp ?? 0}%;background:${CP[cp].color}"></i></span>
+        <span class="p${c}">${pp === null ? "–" : pp + "%"}</span><span class="n${c}">${tt.on}/${tt.n}</span>${sum ? '<span class="div"></span>' : ""}`;
+    }).join("");
+    return `<div class="cp">
+      <div class="grp">${CP[cp].grp}</div>
+      <h2><span class="sw" style="background:${CP[cp].color}"></span>${CP[cp].label}</h2>
+      <div class="big"><span class="pct">${p === null ? "–" : p + "%"}</span>
+        <span class="of">${t.on} of ${t.n}<br>on time</span></div>
+      <div class="pri">${priRows}</div>
+      <div class="open">${t.openLate ? `${t.openLate} late and not done. ` : ""}${t.pend ? `${t.pend} not yet due.` : ""}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderStrip(rows) {
+  $("stripToggle").innerHTML = CPS.map(cp => `<button data-cp="${cp}" aria-pressed="${state.strip === cp}">${CP[cp].label}</button>`).join("");
+  const cp = state.strip, W = 1000, H = 230, L = 70, R = 16, T = 22, B = 30;
+  const lo = -480, hi = 1440;  // 8 hours early to 24 hours late; beyond is pinned to the edges
+  const x = m => L + (Math.max(lo, Math.min(hi, m)) - lo) / (hi - lo) * (W - L - R);
+  const laneH = (H - T - B) / PRIS.length;
+  const pts = rows.filter(z => z[cp].s === "ontime" || (z[cp].s === "late" && !z[cp].open));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Work order finish times relative to the ${CONFIG.cutoffs[cp]} cutoff">`;
+  PRIS.forEach((p, i) => {
+    const y = T + i * laneH;
+    svg += `<line x1="${L}" x2="${W-R}" y1="${y+laneH}" y2="${y+laneH}" stroke="var(--rule)"/>`;
+    svg += `<text x="${L-10}" y="${y+laneH/2+4}" text-anchor="end">${p === "Default" ? "Default" : "Pri " + p}</text>`;
+  });
+  [[-480,"8h early"],[-240,"4h early"],[0,"Cutoff"],[240,"+4h"],[480,"+8h"],[960,"+16h"],[1440,"+1 day or more"]].forEach(([m, l]) => {
+    svg += `<text x="${x(m)}" y="${H-10}" text-anchor="${m === 1440 ? "end" : m === -480 ? "start" : "middle"}" ${m===0?'style="fill:var(--ink);font-weight:600"':''}>${l}</text>`;
+  });
+  svg += `<line x1="${x(0)}" x2="${x(0)}" y1="${T-8}" y2="${H-B}" stroke="var(--ink)" stroke-width="1.5"/>`;
+  let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  pts.forEach(z => {
+    const i = PRIS.indexOf(priOf(z.r)), cy = T + i * laneH + laneH * (0.2 + 0.6 * rnd());
+    const c = z[cp].s === "ontime" ? "var(--ontime)" : "var(--late)";
+    const tip = `${z.r.wo} (${priOf(z.r)}) due ${fDate(z.r.due)}: ${fDelta(z[cp].m)} vs cutoff${z[cp].approx ? ", approximate" : ""}`;
+    svg += z[cp].approx
+      ? `<circle cx="${x(z[cp].m)}" cy="${cy}" r="4" fill="none" stroke="${c}" stroke-width="1.5"><title>${esc(tip)}</title></circle>`
+      : `<circle cx="${x(z[cp].m)}" cy="${cy}" r="4" fill="${c}" fill-opacity=".8"><title>${esc(tip)}</title></circle>`;
+  });
+  svg += `</svg>`;
+  $("strip").innerHTML = pts.length ? svg : `<div class="empty">No finished work orders in this range yet.</div>`;
+}
+
+function renderTrend(asOf) {
+  let from = dt(state.from), to = dt(state.to);
+  const span = Math.round((to - from) / 86400000) + 1;
+  let note = "By due date, weekdays only.";
+  if (span < 7) { from = addDays(to, -13); note = "By due date, weekdays only. Short ranges show the 14 days ending on the range’s last day."; }
+  $("trendsub").textContent = note;
+  const days = [];
+  for (let d = new Date(from); d <= to; d = addDays(d, 1)) if (d.getDay() % 6) days.push(ymd(d));
+  const series = { an: [], rv: [], cs5: [], cs12: [] };
+  days.forEach(day => {
+    const rs = RECORDS.filter(r => !r.pre_capture && r.due === day && !isExcluded(r)).map(r => ({ r, an: status(r, "an", asOf), rv: status(r, "rv", asOf), cs5: status(r, "cs5", asOf), cs12: status(r, "cs12", asOf) }));
+    CPS.forEach(cp => { const t = tally(rs, cp); series[cp].push(t.n ? { p: 100 * t.on / t.n, n: t.n, on: t.on } : null); });
+  });
+  const W = 1000, H = 220, L = 44, R = 16, T = 14, B = 30;
+  const x = i => L + (days.length === 1 ? (W-L-R)/2 : i * (W - L - R) / (days.length - 1));
+  const y = p => T + (100 - p) / 100 * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily on-time rate">`;
+  [0,25,50,75,100].forEach(p => { svg += `<line x1="${L}" x2="${W-R}" y1="${y(p)}" y2="${y(p)}" stroke="var(--rule)"/><text x="${L-8}" y="${y(p)+4}" text-anchor="end">${p}%</text>`; });
+  const every = Math.max(1, Math.ceil(days.length / 12));
+  days.forEach((d, i) => { if (i % every === 0 || i === days.length - 1) svg += `<text x="${x(i)}" y="${H-10}" text-anchor="middle">${fDate(d)}</text>`; });
+  CPS.forEach(cp => {
+    let path = "", pen = false;
+    series[cp].forEach((v, i) => { if (v) { path += `${pen ? "L" : "M"}${x(i)},${y(v.p)}`; pen = true; } else pen = false; });
+    svg += `<path d="${path}" fill="none" stroke="${CP[cp].color}" stroke-width="2.25" stroke-linejoin="round"/>`;
+    series[cp].forEach((v, i) => { if (v) svg += `<circle cx="${x(i)}" cy="${y(v.p)}" r="3.5" fill="${CP[cp].color}"><title>${esc(`${CP[cp].label}, due ${fDate(days[i])}: ${Math.round(v.p)}% (${v.on}/${v.n})`)}</title></circle>`; });
+  });
+  svg += `</svg>`;
+  $("trend").innerHTML = days.length && CPS.some(cp => series[cp].some(Boolean)) ? svg : `<div class="empty">No completed work in this period yet.</div>`;
+}
+
+function cell(z) {
+  const when = d => `${MON[d.getMonth()]} ${d.getDate()}, ${fTime(d)}`;
+  const star = z.approx ? `<span title="Approximate time">*</span>` : "";
+  if (z.s === "ontime") return `<td class="ok">${fDelta(z.m)} <span class="t">${when(z.t)}${star}</span></td>`;
+  if (z.s === "late" && z.open) return `<td class="late">Not done, ${fDelta(z.m)}</td>`;
+  if (z.s === "late") return `<td class="late">${fDelta(z.m)} <span class="t">${when(z.t)}${star}</span></td>`;
+  return `<td>–</td>`;
+}
+
+function csCell(z) {
+  const a = z.cs5, b = z.cs12;
+  if (a.s === "unresolved") return `<td>Dropped off early</td>`;
+  if (a.s === "pending") return `<td>–</td>`;
+  const when = d => `${MON[d.getMonth()]} ${d.getDate()}, ${fTime(d)}`;
+  const star = a.approx ? `<span title="Approximate time">*</span>` : "";
+  const by1159 = b.s === "ontime" ? `<span class="flag">${b.overnight ? "Made 11:59 (overnight)" : "Made 11:59"}</span>` : b.s === "late" ? `<span class="flag" style="color:var(--late)">Missed 11:59</span>` : "";
+  if (a.s === "ontime") return `<td class="ok">${fDelta(a.m)} <span class="t">${when(a.t)}${star}</span></td>`;
+  if (a.open) return `<td class="late">Not sent, ${fDelta(a.m)} ${by1159}</td>`;
+  return `<td class="late">${fDelta(a.m)} <span class="t">${when(a.t)}${star}</span> ${by1159}</td>`;
+}
+
+function lateTestsFor(z) {
+  const r = z.r, cps = (state.fCp === "either" ? ["an","rv"].filter(c => z[c].s === "late") : [state.fCp]).filter(c => !isCs(c));
+  return (r.late_tests || []).filter(t => cps.some(c => { const v = c === "an" ? t[2] : t[3]; return !v || dt(v) > cutoffOf(r, c); }));
+}
+
+function whatLate(z) {
+  const ts = lateTestsFor(z);
+  if (!ts.length) {
+    const csLate = isCs(state.fCp) ? z[state.fCp].s === "late" : z.cs5.s === "late";
+    return `<td class="what">${csLate ? (z.cs5.open ? "Report not sent yet (lab finished on time)" : "Report sent late (lab finished on time)") : "–"}</td>`;
+  }
+  const by = {};
+  ts.forEach(t => (by[t[1] || "Other"] ??= []).push(t[0] + (t[4] ? ` (${t[4]})` : "")));
+  const groups = Object.entries(by).sort((a, b) => b[1].length - a[1].length);
+  const lines = groups.slice(0, 2).map(([d, list]) => {
+    const u = [...new Set(list)];
+    return `<b>${esc(d)}</b> (${list.length}): ${esc(u.slice(0, 2).join(", "))}${u.length > 2 ? ` +${u.length - 2}` : ""}`;
+  });
+  if (groups.length > 2) lines.push(`<span style="color:var(--muted)">+${groups.length - 2} more departments</span>`);
+  const title = ts.map(t => `${t[1] || ""} ${t[0]}${t[4] ? ` (${t[4]})` : ""}: analyzed ${t[2] ? fStamp(t[2]) : "not yet"}, reviewed ${t[3] ? fStamp(t[3]) : "not yet"}`).join("\n");
+  return `<td class="what" title="${esc(title)}">${lines.join("<br>")}</td>`;
+}
+
+function renderLate(rows) {
+  const cp = state.fCp, pr = state.fPri;
+  let late = rows.filter(z => (cp === "either" ? CPS.some(c => z[c].s === "late") : z[cp].s === "late") && (pr === "all" || priOf(z.r) === pr));
+  late.sort((a, b) => b.r.due.localeCompare(a.r.due) || PRIS.indexOf(priOf(a.r)) - PRIS.indexOf(priOf(b.r)) || a.r.wo.localeCompare(b.r.wo));
+  const cap = state.showAll ? 500 : 25;
+  $("lateCount").innerHTML = `${late.length} late` + (late.length > 25 ? ` <button class="btn" id="showAll">${state.showAll ? "Show fewer" : "Show all"}</button>` : "");
+  LATE_ROWS = late.slice(0, cap);
+  $("lateBody").innerHTML = late.length ? LATE_ROWS.map((z, idx) => {
+    const r = z.r, f = [];
+    if (r.due_count > 1) f.push(r.superseded ? "Due date later moved" : `Due date moved (${r.due_count} dates)`);
+    if (z.an.approx || z.rv.approx) f.push("Approx. time");
+    if (r.unexpected_drops) f.push(`${r.unexpected_drops} test(s) dropped off`);
+    if (r.reopened) f.push("Reopened after report");
+    if (z.cs5.approx && !z.cs12.overnight) f.push("Approx. send time");
+    return `<tr data-i="${idx}"><td><button class="wo" data-pop="${idx}" aria-haspopup="dialog">${esc(r.wo)}</button></td><td>${esc(priOf(r))}</td><td>${fDate(r.due)}</td>${whatLate(z)}
+      ${cell(z.an)}${cell(z.rv)}${csCell(z)}<td>${esc(r.client)}</td><td>${esc(r.csp || "")}</td><td>${f.map(x => `<span class="flag">${esc(x)}</span>`).join("")}</td>
+      <td><button class="btn" data-ex="${esc(r.wo)}">Exclude</button></td></tr>`;
+  }).join("") : `<tr><td colspan="11" class="empty">No late work orders in this range.</td></tr>`;
+}
+
+function renderExclusions() {
+  $("rules").innerHTML = EX.rules.length ? EX.rules.map((x, i) => `<li><span>${esc(x.label)}<br><span class="meta">${x.match === "starts" ? `Client name starts with “${esc(x.value.trim())}”` : "Exact customer name"}</span></span>
+    <span style="display:flex;gap:8px;align-items:center">${x.id === "wm" ? "" : `<button class="btn" data-delrule="${i}">Remove</button>`}
+    <label class="switch" title="${x.on ? "Excluded" : "Included"}"><input type="checkbox" data-rule="${i}" ${x.on ? "checked" : ""} aria-label="Exclude ${esc(x.label)}"><span></span></label></span></li>`).join("")
+    : `<li class="meta">No customers excluded.</li>`;
+  const wos = Object.entries(EX.wos).sort((a, b) => (b[1].at || "").localeCompare(a[1].at || ""));
+  $("woEx").innerHTML = wos.length ? wos.map(([wo, v]) => `<li><span><b>${esc(wo)}</b><br><span class="meta">${esc(v.by || "Unknown")}, ${v.at ? esc(fStamp(v.at)) : ""}</span></span><button class="btn" data-restore="${esc(wo)}">Include again</button></li>`).join("")
+    : `<li class="meta">No work orders excluded. Use Exclude in the late list, or type a WO number below.</li>`;
+  const clients = [...new Set(RECORDS.map(r => r.client).filter(Boolean))].sort();
+  $("clients").innerHTML = clients.map(c => `<option value="${esc(c)}">`).join("");
+}
+
+function renderNotes(inRange, rows) {
+  const exCount = inRange.filter(isExcluded).length;
+  const moved = rows.filter(z => z.r.due_count > 1).length;
+  const approx = rows.filter(z => z.an.approx || z.rv.approx).length;
+  const unres = rows.filter(z => z.an.s === "unresolved").length;
+  const dropped = rows.filter(z => z.r.unexpected_drops || z.r.cs_unexpected).length;
+  const reopened = rows.filter(z => z.r.reopened).length;
+  const offDays = rows.filter(z => { const d = dt(z.r.due); return d.getDay() === 0 || d.getDay() === 6 || CONFIG.holidays.includes(z.r.due); });
+  const n = (v, l, extra = "") => `<div class="note"><b>${v}</b><span>${l}</span>${extra}</div>`;
+  $("notes").innerHTML =
+    n(exCount, "commitments excluded") +
+    n(moved, "commitments on WOs whose due date moved (each date counts)") +
+    n(approx, "with an approximate finish time") +
+    n(dropped, "WOs with tests that dropped off the report early", unres ? `<br><span>${unres} have no countable tests and are left out</span>` : "") +
+    n(reopened, "on WOs reopened after a report went out (often an add-on)") +
+    n(offDays.length, "due on a weekend or holiday", offDays.length ? `<br><span>${offDays.slice(0, 6).map(z => esc(z.r.wo)).join(", ")}${offDays.length > 6 ? "…" : ""}</span>` : "");
+}
+
+/* ---------- work order popout ---------- */
+const STAGES = [["Not started", ["Pending","Received","Available"]], ["Leached", ["Leached"]], ["Batched", ["Batched"]],
+  ["Prepared", ["Prepared"]], ["Analyzed", ["Analyzed"]], ["Reviewed", ["Reviewed","Peer Reviewed"]], ["Reported or done", ["Reported","Off report"]]];
+const RANK = { Pending:0, Received:1, Available:2, Leached:3, Batched:4, Prepared:5, Analyzed:6, Reviewed:7, "Peer Reviewed":8, Reported:9, "Off report":9 };
+let popFor = null, popPinned = false, popTimer = null, popView = null;
+
+function defaultView(z) {
+  const r = z.r, snap = r.snap_at || {};
+  for (const cp of ["an","rv"]) if (z[cp].s === "late" && snap[cp]) return cp;
+  return "now";
+}
+
+function popHtml(z) {
+  const r = z.r, tests = r.wo_tests || [], snap = r.snap_at || {}, v = popView;
+  const statusOf = t => v === "an" ? t[3] : v === "rv" ? t[4] : t[7];
+  const isRed = t => {
+    if (v === "now") return t[6];
+    const st = statusOf(t);
+    return st == null || (RANK[st] ?? 0) < (v === "an" ? 6 : 7);
+  };
+  const stages = v === "now" ? STAGES : [...STAGES, ["Added after cutoff", [null]]];
+  const chip = t => `<span class="chip${isRed(t) ? " late" : ""}" title="Now: ${esc(t[7] || "")}${v !== "now" ? `. At cutoff: ${esc(statusOf(t) ?? "not on the WO yet")}` : ""}">${esc(t[1])}${t[5] ? ` <em>${esc(t[5])}</em>` : ""}${t[2] ? ` ${esc(t[2])}` : ""}</span>`;
+  const cols = stages.map(([name, statuses]) => {
+    const ts = tests.filter(t => statuses.includes(statusOf(t) ?? null));
+    const byAn = {};
+    ts.forEach(t => (byAn[t[0]] ??= []).push(t));
+    const body = Object.entries(byAn).sort((a, b) => a[0].localeCompare(b[0])).map(([an, list]) =>
+      `<div class="an">${esc(an)}</div><div>${list.sort((a, b) => String(a[1]).localeCompare(String(b[1]))).map(chip).join("")}</div>`).join("");
+    return `<div class="st${ts.length ? "" : " none"}"><h4>${name}${ts.length ? ` (${ts.length})` : ""}</h4>${body}</div>`;
+  }).join("");
+  const tab = (key, label, ok) => `<button data-view="${key}" aria-pressed="${v === key}" ${ok ? "" : "disabled title=\"No pull close enough to this cutoff\""}>${label}</button>`;
+  const red = tests.filter(isRed).length;
+  const st = (lbl, x) => x.s === "late" ? (x.open ? `${lbl} not done, ${fDelta(x.m)}` : `${lbl} ${fDelta(x.m)} late`) : x.s === "ontime" ? `${lbl} on time` : `${lbl} pending`;
+  const viewNote = v === "now" ? "Where each test is now. Red tests missed a cutoff."
+    : `Where each test was at the ${v === "an" ? "3:30" : "4:00"} PM cutoff (snapshot from the ${fTime(dt(snap[v]))} pull). Red tests weren’t ${v === "an" ? "analyzed" : "reviewed"} yet.`;
+  return `<div class="ph"><b>${esc(r.wo)}</b><span>${esc(r.client)}</span><span class="m">${esc(priOf(r) === "Default" ? "Default priority" : "Priority " + priOf(r))}, due ${fDate(r.due)}${r.csp ? ", CSP " + esc(r.csp) : ""}</span></div>
+    ${tests.length ? `<div class="toggle">${tab("an", "At 3:30 PM cutoff", !!snap.an)}${tab("rv", "At 4:00 PM cutoff", !!snap.rv)}${tab("now", "Now", true)}</div>
+    <div class="m" style="margin:0 0 8px;color:var(--muted)">${viewNote}</div>
+    <div style="overflow-x:auto"><div class="stages${v === "now" ? "" : " eight"}">${cols}</div></div>` : `<div class="m">Stage detail isn’t available for this work order.</div>`}
+    <div class="pf"><span>${st("Analyzed", z.an)}</span><span>${st("Reviewed", z.rv)}</span><span>${st("Report by 5:00", z.cs5)}</span><span>${st("Report by 11:59", z.cs12)}</span>${r.wo_status ? `<span>WO status: ${esc(r.wo_status)}</span>` : ""}${tests.length ? `<span>${red} of ${tests.length} tests in red</span>` : ""}</div>`;
+}
+
+function showPop(idx, anchor, pin) {
+  const z = LATE_ROWS[idx]; if (!z) return;
+  const pop = $("pop");
+  document.querySelectorAll("#lateBody tr.hot").forEach(tr => tr.classList.remove("hot"));
+  anchor.closest("tr")?.classList.add("hot");
+  if (popFor !== idx) { popView = defaultView(z); pop.innerHTML = popHtml(z); }
+  popFor = idx; popPinned = !!pin; pop.hidden = false;
+  const a = anchor.closest("tr").getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+  const left = Math.max(12, Math.min(innerWidth - pw - 12, a.left + 24));
+  let top = a.bottom + 6;
+  if (top + ph > innerHeight - 12) top = Math.max(12, a.top - ph - 6);
+  pop.style.left = left + "px"; pop.style.top = top + "px";
+}
+function hidePop() {
+  $("pop").hidden = true; popFor = null; popPinned = false;
+  document.querySelectorAll("#lateBody tr.hot").forEach(tr => tr.classList.remove("hot"));
+}
+
+/* ---------- wiring ---------- */
+function wire() {
+  $("presets").innerHTML = PRESETS.map(([p, l]) => `<button data-p="${p}">${l}</button>`).join("");
+  $("presets").addEventListener("click", e => { const b = e.target.closest("button"); if (b) applyPreset(b.dataset.p); });
+  const custom = () => { if ($("from").value && $("to").value) { state.preset = "custom"; state.from = $("from").value <= $("to").value ? $("from").value : $("to").value; state.to = $("from").value <= $("to").value ? $("to").value : $("from").value; render(); } };
+  $("from").addEventListener("change", custom); $("to").addEventListener("change", custom);
+  $("stripToggle").addEventListener("click", e => { const b = e.target.closest("button"); if (b) { state.strip = b.dataset.cp; render(); } });
+  $("fCp").addEventListener("change", e => { state.fCp = e.target.value; render(); });
+  $("fPri").addEventListener("change", e => { state.fPri = e.target.value; render(); });
+  const stamp = () => ({ by: ls.get("otd_name") || (DEMO ? "You" : "Unknown"), at: new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,19) });
+  document.body.addEventListener("click", e => {
+    const t = e.target.closest("button"); if (!t) return;
+    if (t.id === "showAll") { state.showAll = !state.showAll; render(); return; }
+    if (t.dataset.pop !== undefined) { const i = +t.dataset.pop; if (popPinned && popFor === i) hidePop(); else showPop(i, t, true); return; }
+    if (t.dataset.ex) { const wo = t.dataset.ex; saveExclusions(x => { x.wos[wo] = stamp(); }, `Excluded ${wo}`); }
+    if (t.dataset.restore) { const wo = t.dataset.restore; saveExclusions(x => { delete x.wos[wo]; }, `Included ${wo} again`); }
+    if (t.dataset.delrule) { const i = +t.dataset.delrule, lbl = EX.rules[i].label; saveExclusions(x => { x.rules = x.rules.filter(r => r.label !== lbl); }, `Removed ${lbl}`); }
+  });
+  document.body.addEventListener("change", e => {
+    const t = e.target; if (t.dataset.rule === undefined) return;
+    const lbl = EX.rules[+t.dataset.rule].label, on = t.checked;
+    saveExclusions(x => { const r = x.rules.find(r => r.label === lbl); if (r) r.on = on; }, `${on ? "Excluded" : "Included"} ${lbl}`);
+  });
+  const body = $("lateBody"), pop = $("pop");
+  body.addEventListener("mouseover", e => {
+    const tr = e.target.closest("tr[data-i]"); if (!tr || popPinned) return;
+    clearTimeout(popTimer);
+    popTimer = setTimeout(() => showPop(+tr.dataset.i, tr.querySelector("td")), 150);
+  });
+  body.addEventListener("mouseleave", () => { clearTimeout(popTimer); if (!popPinned) popTimer = setTimeout(() => { if (!pop.matches(":hover")) hidePop(); }, 200); });
+  pop.addEventListener("mouseleave", () => { if (!popPinned) popTimer = setTimeout(() => { if (!body.matches(":hover")) hidePop(); }, 200); });
+  pop.addEventListener("mouseenter", () => clearTimeout(popTimer));
+  pop.addEventListener("click", e => {
+    const b = e.target.closest("button[data-view]"); if (!b || b.disabled) return;
+    popView = b.dataset.view; pop.innerHTML = popHtml(LATE_ROWS[popFor]);
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") hidePop(); });
+  document.addEventListener("click", e => { if (popPinned && !pop.contains(e.target) && !e.target.closest("button.wo")) hidePop(); });
+  window.addEventListener("scroll", () => { if (!popPinned) hidePop(); }, { passive: true });
+  $("addCustBtn").addEventListener("click", () => {
+    const v = $("addCust").value.trim(); if (!v) return;
+    $("addCust").value = "";
+    saveExclusions(x => { if (!x.rules.some(r => r.match === "exact" && r.value === v)) x.rules.push({ id: "c" + Date.now(), label: v, match: "exact", value: v, on: true }); }, `Excluded ${v}`);
+  });
+  $("addWoBtn").addEventListener("click", () => {
+    const v = $("addWo").value.trim().toUpperCase(); if (!v) return;
+    $("addWo").value = "";
+    saveExclusions(x => { x.wos[v] = stamp(); }, `Excluded ${v}`);
+  });
+}
+
+(async function init() {
+  const h = location.hash;
+  if (h.startsWith("#key=")) { ls.set("otd_key", decodeURIComponent(h.slice(5))); history.replaceState(null, "", location.pathname + location.search); }
+  wire();
+  if (await loadAll()) applyPreset("mtd");
+})();
+</script>
+</body>
+</html>
