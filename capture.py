@@ -33,6 +33,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -75,6 +76,19 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
+def download_url(url: str) -> str:
+    """Turn any Google Drive / Google Sheets share link into a direct download URL.
+    Other links (e.g. SharePoint) are returned unchanged."""
+    m = re.search(r"/d/([\w-]{20,})", url) or re.search(r"[?&]id=([\w-]{20,})", url)
+    if "docs.google.com/spreadsheets" in url and m:
+        # The file was converted to a Google Sheet: export it as .xlsx
+        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=xlsx"
+    if ("drive.google.com" in url or "drive.usercontent.google.com" in url) and m:
+        return (f"https://drive.usercontent.google.com/download?id={m.group(1)}"
+                "&export=download&confirm=t")
+    return url
+
+
 # ---------------------------------------------------------------- input
 def fetch_pull() -> tuple[bytes, datetime, str]:
     """Return (file bytes, pull time in local time, how the time was found)."""
@@ -87,15 +101,21 @@ def fetch_pull() -> tuple[bytes, datetime, str]:
         return content, datetime.now(LOCAL_TZ).replace(tzinfo=None, microsecond=0), "clock"
 
     import requests
-    url = os.environ.get("WSR_URL")
+    url = os.environ.get("WSR_URL", "").strip()
     if not url:
         sys.exit("WSR_URL is not set (add it under Settings > Secrets and variables > Actions).")
+    url = download_url(url)
     resp = requests.get(url, timeout=120, allow_redirects=True)
     resp.raise_for_status()
     content = resp.content
     if not content.startswith(b"PK"):
-        sys.exit("Download did not return an .xlsx file. The SharePoint link may require "
-                 "sign-in or have expired; re-test it in a private browser window.")
+        text = content[:4000].decode("utf-8", "ignore")
+        title = re.search(r"<title>(.*?)</title>", text, re.I | re.S)
+        hint = title.group(1).strip() if title else text[:200].strip()
+        sys.exit("Download did not return an .xlsx file.\n"
+                 f"  Got back: {hint!r}\n"
+                 "  Check that the file is shared as 'Anyone with the link' (Viewer) and that "
+                 "the link opens without sign-in in a private browser window.")
     if override:
         return content, datetime.fromisoformat(override), "override"
     lm = resp.headers.get("Last-Modified")
