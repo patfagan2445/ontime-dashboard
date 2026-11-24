@@ -63,6 +63,8 @@ MATRIX_CODE = {"Solid": "S", "Water": "W", "Drinking Water": "DW", "Air": "A", "
 CUTOFFS = {"an": "15:30", "rv": "16:00"}   # keep in step with CONFIG.cutoffs in index.html
 CS_CUTOFFS = {"cs5": "17:00", "cs12": "23:59"}   # report sent by 5:00 PM / 11:59 PM
 SENT_STATUS = {"Reported", "Approved", "Completed", "Invoiced"}   # WO statuses meaning the report went out
+READY_STATUS = {"Reportable", "Approvable"}   # WO statuses meaning the report could go out
+READY_AT = "17:00"                              # daily "ready but not sent" snapshot time
 SNAP_WINDOW = timedelta(hours=4)           # cutoff snapshots only from a pull within this long after the cutoff
 
 
@@ -352,12 +354,13 @@ def main() -> None:
                   last=pull_s, gone=None)
         # CS: the first pull showing a "sent" WO status is the report-sent time
         ws = None if row.WOStatus is None or pd.isna(row.WOStatus) else str(row.WOStatus)
+        was_known = "ws" in wo                   # False the first time this WO's status is seen
         was_sent = wo.get("ws") in SENT_STATUS
         wo["ws"] = ws
         if ws in SENT_STATUS and not was_sent:
             gap = prev_last is None or (pull - parse(prev_last)) > GAP_LIMIT
             wo.setdefault("sends", []).append(
-                {"t": pull_s, "approx": bool(gap or pull_s == state["capture_start"]), "src": "status",
+                {"t": pull_s, "approx": bool(gap or not was_known or pull_s == state["capture_start"]), "src": "status",
                  "after": prev_last})      # sent somewhere between the previous pull and this one
         elif was_sent and ws not in SENT_STATUS and ws != "Cancelled":
             wo.setdefault("reopens", []).append(pull_s)      # e.g. an add-on reopened the WO
@@ -365,6 +368,25 @@ def main() -> None:
             due = row.WODueDate.date().isoformat()
             if due not in [d["due"] for d in wo["dues"]]:
                 wo["dues"].append({"due": due, "first_seen": pull_s})
+
+    # Ready-to-report watch: WOs Reportable/Approvable at 5:00 PM, re-checked on the next day's first pull
+    today = pull.date().isoformat()
+    ready = state.setdefault("ready", {})
+    for day, rec in ready.items():
+        if rec.get("t6") is None and day < today:
+            rec["t6"] = pull_s
+            for w, info in rec["wos"].items():
+                wo = wos.get(w)
+                info["next"] = wo.get("ws") if wo and wo.get("last") == pull_s else "Off report"
+                info["sent_at"] = next((x["t"] for x in (wo or {}).get("sends", []) if x["t"] > rec["t5"]), None)
+    ready_cut = datetime.fromisoformat(f"{today}T{READY_AT}:00")
+    if today not in ready and ready_cut <= pull <= ready_cut + SNAP_WINDOW:
+        ready[today] = {"t5": pull_s, "t6": None, "wos": {
+            w: {"ws": wo.get("ws"), "due": wo["dues"][-1]["due"] if wo["dues"] else None,
+                "prio": wo.get("prio"), "client": wo.get("client"), "csp": wo.get("lm")}
+            for w, wo in wos.items() if wo.get("last") == pull_s and wo.get("ws") in READY_STATUS}}
+    for day in [d for d in ready if d < (pull - timedelta(days=120)).date().isoformat()]:
+        del ready[day]
 
     # Tests on this pull
     present = set()
@@ -437,6 +459,9 @@ def main() -> None:
     state.update(last_hash=digest, last_pull=pull_s)
     (DATA_DIR / "state.json").write_text(json.dumps(state, separators=(",", ":")))
     (DATA_DIR / "wo_records.json").write_text(json.dumps(records, separators=(",", ":")))
+    (DATA_DIR / "ready.json").write_text(json.dumps(
+        [{"day": d, "t5": r["t5"], "t6": r["t6"], "wos": [{"wo": w, **i} for w, i in r["wos"].items()]}
+         for d, r in sorted(state.get("ready", {}).items())], separators=(",", ":")))
     (DATA_DIR / "meta.json").write_text(json.dumps({
         "last_pull": pull_s, "pull_time_source": pull_src,
         "capture_start": state["capture_start"], "records": len(records),
