@@ -50,7 +50,7 @@ PULL_LOG_MAX = 3000                    # rows kept in pulls.csv
 
 REQUIRED = ["Wrk", "LabNumber", "AnalysisName", "RECode", "Status",
             "StatusDate", "WODueDate", "WrkPriority", "Client"]
-OPTIONAL = ["DepartmentName", "LabManager", "SubLab"]
+OPTIONAL = ["DepartmentName", "LabManager", "SubLab", "Matrix", "WOStatus"]
 
 # Lab progression. Anything at or past ANALYZED counts as analyzed;
 # at or past REVIEWED counts as data-validated.
@@ -59,6 +59,11 @@ RANK = {"Pending": 0, "Received": 1, "Available": 2, "Leached": 3,
         "Peer Reviewed": 8, "Reported": 9}
 ANALYZED, REVIEWED = RANK["Analyzed"], RANK["Reviewed"]
 EXCLUDED_STATUS = {"Cancelled", "Hold", "Subcontracted"}
+MATRIX_CODE = {"Solid": "S", "Water": "W", "Drinking Water": "DW", "Air": "A", "Waste": "WS", "Wipe": "WP"}
+CUTOFFS = {"an": "15:30", "rv": "16:00"}   # keep in step with CONFIG.cutoffs in index.html
+CS_CUTOFFS = {"cs5": "17:00", "cs12": "23:59"}   # report sent by 5:00 PM / 11:59 PM
+SENT_STATUS = {"Reported", "Approved", "Completed", "Invoiced"}   # WO statuses meaning the report went out
+SNAP_WINDOW = timedelta(hours=4)           # cutoff snapshots only from a pull within this long after the cutoff
 
 
 # ---------------------------------------------------------------- helpers
@@ -70,6 +75,22 @@ def iso(ts) -> str | None:
 
 def parse(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s) if s else None
+
+
+def sample_no(lab_number) -> str:
+    """'O26K0466-01DL1' -> '01' (the rerun code is shown separately)."""
+    tail = str(lab_number).rsplit("-", 1)[-1]
+    m = re.match(r"\d+", tail)
+    return m.group(0) if m else tail
+
+
+def rerun_label(lab_number) -> str | None:
+    """'O26K0466-01DL1' -> 'DL1'; None for the original run."""
+    if "-" not in str(lab_number):
+        return None
+    tail = str(lab_number).rsplit("-", 1)[-1]
+    rest = re.sub(r"^\d+", "", tail)
+    return rest or None
 
 
 def log(msg: str) -> None:
@@ -161,7 +182,9 @@ def update_test(t: dict, row, pull_s: str) -> None:
     status = row.Status
     sd = iso(row.StatusDate)
     rank = RANK.get(status)
-    t.update(w=row.Wrk, s=status, sd=sd, last=pull_s,
+    mx = None if row.Matrix is None or pd.isna(row.Matrix) else MATRIX_CODE.get(row.Matrix, str(row.Matrix)[:2].upper())
+    t.update(k=row.key, w=row.Wrk, s=status, sd=sd, last=pull_s, a=row.AnalysisName, re=row.RECode,
+             smp=sample_no(row.LabNumber), rel=rerun_label(row.LabNumber), mx=mx,
              dept=None if pd.isna(row.DepartmentName) else row.DepartmentName,
              sub=bool(status == "Subcontracted" or (row.SubLab is not None and not pd.isna(row.SubLab))))
     t.setdefault("seen", pull_s)
@@ -222,7 +245,7 @@ def is_active(t: dict) -> bool:
                 or t.get("drop") in ("excluded", "unexpected"))
 
 
-def build_records(wrk: str, wo: dict, tests: list[dict], capture_start: str) -> list[dict]:
+def build_records(wrk: str, wo: dict, tests: list[dict], capture_start: str, pull: datetime) -> list[dict]:
     active = [t for t in tests if is_active(t)]
     unexpected = sum(1 for t in tests if t.get("drop") == "unexpected")
 
@@ -239,7 +262,31 @@ def build_records(wrk: str, wo: dict, tests: list[dict], capture_start: str) -> 
     start_date = capture_start[:10]
     dues = wo["dues"]
     out = []
+    sends, reopens = wo.get("sends", []), wo.get("reopens", [])
     for i, d in enumerate(dues):
+        # CS: the send that applies to this due date (a due date set after a reopen waits for the next send)
+        prior = [x for x in reopens if x <= d["first_seen"]]
+        after = prior[-1] if prior else None
+        send = next((x for x in sends if after is None or x["t"] > after), None)
+        cs_cut = f"{d['due']}T{CS_CUTOFFS['cs5']}:00"
+        cs_late = (send["t"] > cs_cut) if send else pull > datetime.fromisoformat(cs_cut)
+
+        # Tests that missed a cutoff (or aren't done yet), listed once the cutoff has passed,
+        # so the dashboard can show what made the WO late: [analysis, dept, analyzed, reviewed, rerun code]
+        late_tests, wo_tests = [], []
+        first_cut = datetime.fromisoformat(f"{d['due']}T{CUTOFFS['an']}:00")
+        if pull > first_cut:
+            an_cut = first_cut.isoformat()
+            rv_cut = f"{d['due']}T{CUTOFFS['rv']}:00"
+            for t in active:
+                is_late = not t.get("an") or t["an"] > an_cut or not t.get("rv") or t["rv"] > rv_cut
+                re_code = t.get("re") if t.get("re") not in (None, "I") else None
+                if is_late:
+                    late_tests.append([t.get("a"), t.get("dept"), t.get("an"), t.get("rv"), re_code])
+                snap = wo.get("snap", {}).get(d["due"], {})
+                at = lambda cp: (snap.get(cp) or {}).get("s", {}).get(t.get("k"))
+                wo_tests.append([t.get("a"), t.get("smp"), t.get("mx"), at("an"), at("rv"),
+                                 t.get("rel") or re_code, is_late, t.get("s")])
         out.append({
             "wo": wrk,
             "due": d["due"],
@@ -256,6 +303,21 @@ def build_records(wrk: str, wo: dict, tests: list[dict], capture_start: str) -> 
             "reviewed_at": rv, "reviewed_approx": rv_approx, "open_reviewed": rv_open,
             "unexpected_drops": unexpected,
             "pre_capture": d["due"] <= start_date,
+            "late_tests": late_tests,
+            # every active test, only for WOs that missed a cutoff:
+            # [analysis, sample #, matrix, status at 3:30 cutoff, status at 4:00 cutoff,
+            #  rerun code, missed a cutoff, current status]  (cutoff status None = not on the WO yet)
+            "wo_tests": wo_tests if (late_tests or cs_late) else [],
+            # when the cutoff snapshots were taken (None = no pull close enough to the cutoff)
+            "snap_at": {cp: (wo.get("snap", {}).get(d["due"], {}).get(cp) or {}).get("t") for cp in CUTOFFS}
+                       if (late_tests or cs_late) else {},
+            "sent_at": send["t"] if send else None,
+            "sent_approx": bool(send and send["approx"]),
+            "sent_src": send["src"] if send else None,
+            "sent_after": send.get("after") if send else None,
+            "cs_unexpected": wo.get("cs_drop") == "unexpected" and not send,
+            "reopened": bool(reopens),
+            "wo_status": wo.get("ws"),
         })
     return out
 
@@ -283,10 +345,22 @@ def main() -> None:
     first = df.drop_duplicates("Wrk")
     for row in first.itertuples(index=False):
         wo = wos.setdefault(row.Wrk, {"dues": []})
+        prev_last = wo.get("last")
         wo.update(prio=None if pd.isna(row.WrkPriority) else str(row.WrkPriority),
                   client=row.Client,
                   lm=None if pd.isna(row.LabManager) else row.LabManager,
-                  last=pull_s)
+                  last=pull_s, gone=None)
+        # CS: the first pull showing a "sent" WO status is the report-sent time
+        ws = None if row.WOStatus is None or pd.isna(row.WOStatus) else str(row.WOStatus)
+        was_sent = wo.get("ws") in SENT_STATUS
+        wo["ws"] = ws
+        if ws in SENT_STATUS and not was_sent:
+            gap = prev_last is None or (pull - parse(prev_last)) > GAP_LIMIT
+            wo.setdefault("sends", []).append(
+                {"t": pull_s, "approx": bool(gap or pull_s == state["capture_start"]), "src": "status",
+                 "after": prev_last})      # sent somewhere between the previous pull and this one
+        elif was_sent and ws not in SENT_STATUS and ws != "Cancelled":
+            wo.setdefault("reopens", []).append(pull_s)      # e.g. an add-on reopened the WO
         if pd.notna(row.WODueDate):
             due = row.WODueDate.date().isoformat()
             if due not in [d["due"] for d in wo["dues"]]:
@@ -305,6 +379,37 @@ def main() -> None:
             mark_gone(t, pull, pull_s)
             dropped += 1
 
+    # Snapshot each WO's tests at the first pull after each cutoff on its due date
+    keys_now: dict[str, list[str]] = {}
+    for key, t in tests.items():
+        keys_now.setdefault(t["w"], []).append(key)
+    for wrk, wo in wos.items():
+        for d in wo["dues"]:
+            for cp, hhmm in CUTOFFS.items():
+                cut = datetime.fromisoformat(f"{d['due']}T{hhmm}:00")
+                snaps = wo.setdefault("snap", {}).setdefault(d["due"], {})
+                if cp in snaps or not (cut <= pull <= cut + SNAP_WINDOW):
+                    continue
+                snaps[cp] = {"t": pull_s, "s": {
+                    k: (tests[k]["s"] if not tests[k].get("gone") else "Off report")
+                    for k in keys_now.get(wrk, [])}}
+
+    # CS: a WO that disappears after its lab work is done counts as sent at the first missing pull
+    for wrk, wo in wos.items():
+        if "frozen" in wo or wo.get("last") == pull_s or wo.get("gone"):
+            continue
+        wo["gone"] = pull_s
+        if wo.get("ws") in SENT_STATUS or wo.get("ws") == "Cancelled":
+            continue
+        ts = [tests[k] for k in keys_now.get(wrk, [])]
+        active = [t for t in ts if is_active(t)]
+        if active and all(t.get("rv") for t in active):
+            wo.setdefault("sends", []).append(
+                {"t": pull_s, "approx": (pull - parse(wo["last"])) > GAP_LIMIT, "src": "dropoff",
+                 "after": wo["last"]})
+        else:
+            wo["cs_drop"] = "unexpected"
+
     # Freeze and prune WOs whose tests have all been gone a long time
     keys_by_wo: dict[str, list[str]] = {}
     for key, t in tests.items():
@@ -313,7 +418,8 @@ def main() -> None:
     for wrk, keys in keys_by_wo.items():
         ts = [tests[k] for k in keys]
         if wrk in wos and all(t.get("gone") and parse(t["gone"]) < cutoff for t in ts):
-            wos[wrk]["frozen"] = build_records(wrk, wos[wrk], ts, state["capture_start"])
+            wos[wrk]["frozen"] = build_records(wrk, wos[wrk], ts, state["capture_start"], pull)
+            wos[wrk].pop("snap", None)
             for k in keys:
                 del tests[k]
     by_wo = {}
@@ -325,7 +431,7 @@ def main() -> None:
         if "frozen" in wo:
             records.extend(wo["frozen"])
         elif wo["dues"]:
-            records.extend(build_records(wrk, wo, by_wo.get(wrk, []), state["capture_start"]))
+            records.extend(build_records(wrk, wo, by_wo.get(wrk, []), state["capture_start"], pull))
     records.sort(key=lambda r: (r["due"], r["wo"], r["due_seq"]))
 
     state.update(last_hash=digest, last_pull=pull_s)
@@ -335,6 +441,7 @@ def main() -> None:
         "last_pull": pull_s, "pull_time_source": pull_src,
         "capture_start": state["capture_start"], "records": len(records),
         "rules": {"analyzed_cutoff": "15:30", "reviewed_cutoff": "16:00",
+                  "report_cutoffs": ["17:00", "23:59"],
                   "approx_gap_minutes": int(GAP_LIMIT.total_seconds() // 60)},
     }, indent=2))
 
