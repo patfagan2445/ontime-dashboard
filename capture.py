@@ -302,7 +302,7 @@ def build_records(wrk: str, wo: dict, tests: list[dict], capture_start: str, pul
             "analyzed_at": an, "analyzed_approx": an_approx, "open_analyzed": an_open,
             "reviewed_at": rv, "reviewed_approx": rv_approx, "open_reviewed": rv_open,
             "unexpected_drops": unexpected,
-            "pre_capture": d["due"] <= start_date,
+            "pre_capture": d["due"] < start_date,
             "late_tests": late_tests,
             # every active test, only for WOs that missed a cutoff:
             # [analysis, sample #, matrix, status at 3:30 cutoff, status at 4:00 cutoff,
