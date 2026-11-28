@@ -1,0 +1,15 @@
+{
+  "last_pull": "2026-11-28T01:30:32",
+  "pull_time_source": "clock",
+  "capture_start": "2026-11-24T13:36:17",
+  "records": 717,
+  "rules": {
+    "analyzed_cutoff": "15:30",
+    "reviewed_cutoff": "16:00",
+    "report_cutoffs": [
+      "17:00",
+      "23:59"
+    ],
+    "approx_gap_minutes": 30
+  }
+}
